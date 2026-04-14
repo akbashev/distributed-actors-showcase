@@ -1,0 +1,246 @@
+openapi: 3.1.0
+info:
+  title: Seamless API
+  version: 1.0.0
+servers:
+  - url: 'http://127.0.0.1:8080'
+paths:
+  /conversations/{sessionID}/connect:
+    post:
+      operationId: connectConversation
+      summary: Bidirectional stream for conversation updates and task requests
+      parameters:
+        - in: path
+          name: sessionID
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: schemaID
+          schema:
+            type: string
+            format: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/jsonl:
+            schema:
+              $ref: '#/components/schemas/SeamlessStreamMessage'
+      responses:
+        '200':
+          description: Stream of conversation messages and updates
+          content:
+            application/jsonl:
+              schema:
+                $ref: '#/components/schemas/SeamlessStreamMessage'
+  /conversations/{sessionID}/sync:
+    post:
+      operationId: sync
+      summary: Persist a client-produced message to backend conversation history
+      parameters:
+        - in: path
+          name: sessionID
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: schemaID
+          schema:
+            type: string
+            format: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeamlessSyncRequest'
+      responses:
+        '200':
+          description: Message synced
+  /execute:
+    post:
+      operationId: execute
+      summary: Execute one seamless task request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeamlessExecuteRequest'
+      responses:
+        '200':
+          description: Task execution completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeamlessExecuteResponse'
+components:
+  schemas:
+    SeamlessStreamMessage:
+      discriminator:
+        propertyName: role
+        mapping:
+          user: '#/components/schemas/UserStreamWrapper'
+          assistant: '#/components/schemas/AssistantStreamWrapper'
+      oneOf:
+        - $ref: '#/components/schemas/UserStreamWrapper'
+        - $ref: '#/components/schemas/AssistantStreamWrapper'
+    UserStreamWrapper:
+      type: object
+      required: [role, createdAt, message]
+      properties:
+        role:
+          type: string
+          enum: [user]
+        createdAt:
+          type: string
+          format: date-time
+        message:
+          $ref: '#/components/schemas/UserMessage'
+    AssistantStreamWrapper:
+      type: object
+      required: [role, createdAt, message]
+      properties:
+        role:
+          type: string
+          enum: [assistant]
+        createdAt:
+          type: string
+          format: date-time
+        isRemote:
+          type: boolean
+        message:
+          $ref: '#/components/schemas/AssistantMessage'
+    UserMessage:
+      discriminator:
+        propertyName: type
+        mapping:
+          connected: '#/components/schemas/ConnectedMessage'
+          request: '#/components/schemas/RequestMessage'
+          disconnected: '#/components/schemas/DisconnectedMessage'
+          heartbeat: '#/components/schemas/HeartbeatMessage'
+      oneOf:
+        - $ref: '#/components/schemas/ConnectedMessage'
+        - $ref: '#/components/schemas/RequestMessage'
+        - $ref: '#/components/schemas/DisconnectedMessage'
+        - $ref: '#/components/schemas/HeartbeatMessage'
+    AssistantMessage:
+      discriminator:
+        propertyName: type
+        mapping:
+          partial: '#/components/schemas/PartialMessage'
+          completed: '#/components/schemas/CompletedMessage'
+          error: '#/components/schemas/ErrorMessage'
+          heartbeat: '#/components/schemas/HeartbeatMessage'
+          transcript: '#/components/schemas/TranscriptMessage'
+      oneOf:
+        - $ref: '#/components/schemas/PartialMessage'
+        - $ref: '#/components/schemas/CompletedMessage'
+        - $ref: '#/components/schemas/ErrorMessage'
+        - $ref: '#/components/schemas/HeartbeatMessage'
+        - $ref: '#/components/schemas/TranscriptMessage'
+    PartialMessage:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [partial]
+        data:
+          type: string
+          format: byte
+    ErrorMessage:
+      type: object
+      required: [type, errorText]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        errorText:
+          type: string
+    ConnectedMessage:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [connected]
+    DisconnectedMessage:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [disconnected]
+    HeartbeatMessage:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [heartbeat]
+    RequestMessage:
+      type: object
+      required: [type, prompt]
+      properties:
+        type:
+          type: string
+          enum: [request]
+        prompt:
+          type: string
+    CompletedMessage:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [completed]
+        data:
+          type: string
+          format: byte
+          
+    TranscriptMessage:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [transcript]
+        data:
+          type: string
+          format: byte
+
+    SeamlessExecuteRequest:
+      type: object
+      required:
+        - schemaID
+        - prompt
+      properties:
+        schemaID:
+          type: string
+        prompt:
+          type: string
+          
+    SeamlessSyncRequest:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeamlessStreamMessage'
+        transcript:
+          type: string
+          format: byte
+            
+    SeamlessExecuteResponse:
+      type: object
+      required:
+        - payload
+      properties:
+        payload:
+          type: string
+          format: byte

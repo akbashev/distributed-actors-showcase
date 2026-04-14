@@ -1,0 +1,17 @@
+name: Conversation
+options:
+  bundleIdPrefix: com.seamless
+targets:
+  Conversation:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Conversation]
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      CODE_SIGN_ENTITLEMENTS: Conversation/Conversation.entitlements
+    dependencies:
+      - package: ConversationApp
+packages:
+  ConversationApp:
+    path: ../../Examples/Conversation

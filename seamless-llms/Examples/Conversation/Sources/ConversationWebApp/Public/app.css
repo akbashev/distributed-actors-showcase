@@ -1,0 +1,193 @@
+/* Add your CSS styles here */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f5f5f7;
+    color: #1d1d1f;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e5e5ea;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+.status-pill {
+    display: flex;
+    align-items: center;
+    background-color: #e5e5ea;
+    padding: 5px 10px;
+    border-radius: 15px;
+    font-size: 0.85em;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #34c759;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-dot.offline {
+    background-color: #ff3b30;
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 70vh;
+}
+
+.chat-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.back-btn {
+    background: none;
+    border: none;
+    color: #007aff;
+    cursor: pointer;
+    font-size: 1em;
+    margin-right: 15px;
+}
+
+.chat-shell {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.message-area {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.message-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.bubble-wrapper {
+    display: flex;
+}
+
+.bubble-wrapper.user {
+    justify-content: flex-end;
+}
+
+.bubble-wrapper.assistant {
+    justify-content: flex-start;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.bubble {
+    max-width: 70%;
+    padding: 10px 15px;
+    border-radius: 18px;
+    line-height: 1.4;
+}
+
+.bubble-wrapper.user .bubble {
+    background-color: #007aff;
+    color: white;
+}
+
+.bubble-wrapper.assistant .bubble {
+    background-color: #e5e5ea;
+    color: #1d1d1f;
+}
+
+.subtle {
+    color: #8e8e93;
+    font-size: 0.85em;
+}
+
+.form-row {
+    display: flex;
+    gap: 10px;
+}
+
+.form-row input[type="text"] {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #c7c7cc;
+    border-radius: 8px;
+    font-size: 1em;
+}
+
+.form-row button {
+    background-color: #007aff;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 1em;
+    cursor: pointer;
+}
+
+.form-row button:disabled {
+    background-color: #a1c6ea;
+}
+
+pre {
+    white-space: pre-wrap;
+    margin: 0;
+}
+
+.reaction-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.react-btn {
+    background: none;
+    border: 1px solid #c7c7cc;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.8em;
+    cursor: pointer;
+    color: #8e8e93;
+}
+
+.react-btn:hover {
+    background-color: #f2f2f7;
+}
+
+.react-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.emojis {
+    font-size: 1.2em;
+}
