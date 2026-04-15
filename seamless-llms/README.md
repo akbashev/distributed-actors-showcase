@@ -1,5 +1,9 @@
 # seamless-llms
 
+The `Examples/Conversation` directory contains a full working example with a native SwiftUI app and a web frontend running against the same backend:
+
+![Conversation example](Examples/Conversation/chat-example.png)
+
 A research project exploring seamless execution of LLM tasks across local and remote backends, built on top of [swift-distributed-actors](https://github.com/apple/swift-distributed-actors), [cluster-event-sourcing](https://github.com/akbashev/cluster-event-sourcing), [cluster-virtual-actors](https://github.com/akbashev/cluster-virtual-actors), and Apple's [FoundationModels](https://developer.apple.com/documentation/foundationmodels).
 
 The core idea: an LLM call should be able to run locally on-device or on a remote backend, with the routing decision made transparently — the caller doesn't know or care which one ran. This was a few-days experiment, not a production system.
