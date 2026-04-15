@@ -4,6 +4,8 @@ A demo application showing durable workflows in action with a travel booking sag
 
 The app runs a local web UI at `http://localhost:8080`. Multiple browser tabs can connect as different users. Clicking **Crash Server** mid-booking demonstrates durability — restart the server and the workflow resumes from where it left off.
 
+![Booking example](booking-example.png)
+
 ## Architecture
 
 ```
