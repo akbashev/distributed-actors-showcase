@@ -8,6 +8,8 @@ let package = Package(
   ],
   products: [
     .library(name: "TravelBooking", targets: ["TravelBooking"]),
+    .library(name: "FileCompressor", targets: ["FileCompressor"]),
+    .library(name: "EventStores", targets: ["EventStores"]),
     .executable(name: "durable-workflows-demo", targets: ["DurableWorkflowsDemo"]),
   ],
   dependencies: [
@@ -25,6 +27,13 @@ let package = Package(
   ],
   targets: [
     .target(
+      name: "EventStores",
+      dependencies: [
+        .product(name: "EventSourcing", package: "cluster-event-sourcing")
+      ],
+      path: "EventStores"
+    ),
+    .target(
       name: "TravelBooking",
       dependencies: [
         .product(name: "DurableWorkflows", package: "durable-workflows"),
@@ -34,10 +43,20 @@ let package = Package(
       ],
       path: "TravelBooking"
     ),
+    .target(
+      name: "FileCompressor",
+      dependencies: [
+        .product(name: "DurableWorkflows", package: "durable-workflows"),
+        .product(name: "DistributedCluster", package: "swift-distributed-actors"),
+      ],
+      path: "FileCompressor"
+    ),
     .executableTarget(
       name: "DurableWorkflowsDemo",
       dependencies: [
         "TravelBooking",
+        "FileCompressor",
+        "EventStores",
         .product(name: "DurableWorkflows", package: "durable-workflows"),
         .product(name: "EventSourcing", package: "cluster-event-sourcing"),
         .product(name: "VirtualActors", package: "cluster-virtual-actors"),
@@ -49,6 +68,7 @@ let package = Package(
         .product(name: "Elementary", package: "elementary"),
         .product(name: "ElementaryHTMX", package: "elementary-htmx"),
         .product(name: "ElementaryHTMXWS", package: "elementary-htmx"),
+        .product(name: "ElementaryHTMXSSE", package: "elementary-htmx"),
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ],
       path: "DurableWorkflowsDemo",

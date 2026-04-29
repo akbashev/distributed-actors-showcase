@@ -5,6 +5,46 @@ import ElementaryHTMXWS
 import Foundation
 import TravelBooking
 
+public struct LandingPage: HTMLDocument, Sendable {
+  public init() {}
+  public var title: String { "Durable Workflows" }
+
+  public var head: some HTML {
+    meta(.charset(.utf8))
+    meta(.name("viewport"), .content("width=device-width, initial-scale=1"))
+    link(.href("/style.css"), .rel(.stylesheet))
+  }
+
+  public var body: some HTML {
+    main(.class("container")) {
+      header(.style("margin-bottom: 3rem; text-align: center;")) {
+        h1 { "Durable Workflows" }
+        p(.style("opacity: 0.7; font-size: 1.1rem;")) { "Pick a demo to explore." }
+      }
+      div(.style("display: grid; gap: 1.5rem; grid-template-columns: 1fr 1fr;")) {
+        a(.href("/travel"), .style("text-decoration: none; color: inherit;")) {
+          div(.class("card"), .style("text-align: center; cursor: pointer;")) {
+            div(.style("font-size: 3rem; margin-bottom: 1rem;")) { "✈️" }
+            h2(.style("margin: 0 0 0.5rem;")) { "Travel Booking" }
+            p(.style("opacity: 0.7; margin: 0; font-size: 0.95rem;")) {
+              "Multi-step saga with compensation, virtual actors, and WebSocket updates."
+            }
+          }
+        }
+        a(.href("/compressor"), .style("text-decoration: none; color: inherit;")) {
+          div(.class("card"), .style("text-align: center; cursor: pointer;")) {
+            div(.style("font-size: 3rem; margin-bottom: 1rem;")) { "🗜️" }
+            h2(.style("margin: 0 0 0.5rem;")) { "File Compressor" }
+            p(.style("opacity: 0.7; margin: 0; font-size: 0.95rem;")) {
+              "Download URLs and zip them into an archive, with SSE live updates."
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 public struct Page<Content: HTML & Sendable>: HTMLDocument, Sendable {
   public let pageContent: Content
   public let username: String?

@@ -3,6 +3,8 @@ import Distributed
 import DistributedCluster
 import DurableWorkflows
 import EventSourcing
+import EventStores
+import FileCompressor
 import Foundation
 import Hummingbird
 import HummingbirdElementary
@@ -85,9 +87,170 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
     // --- HTML ROUTES ---
 
     router.get("/") { _, _ in
+      HTMLResponse { LandingPage() }
+    }
+
+    router.get("/travel") { _, _ in
       HTMLResponse {
         Page(pageContent: UserEntryFragment())
       }
+    }
+
+    // --- COMPRESSOR PROGRESS STORE ---
+
+    let progressStore = WorkflowProgressStore()
+
+    // --- COMPRESSOR ROUTES ---
+
+    router.get("/compressor") { _, _ in
+      HTMLResponse { CompressorPage() }
+    }
+
+    router.post("/compressor/compress") { request, _ in
+      let body = try await request.body.collect(upTo: 1024 * 1024)
+      let raw = String(buffer: body)
+
+      var urlStrings: [String] = []
+      var archiveName = "archive"
+      for pair in raw.split(separator: "&") {
+        let parts = pair.split(separator: "=", maxSplits: 1).map {
+          String($0).removingPercentEncoding?.replacingOccurrences(of: "+", with: " ") ?? String($0)
+        }
+        guard parts.count == 2 else { continue }
+        switch parts[0] {
+        case "url": urlStrings.append(parts[1])
+        case "archiveName": if !parts[1].isEmpty { archiveName = parts[1] }
+        default: break
+        }
+      }
+
+      let urls = urlStrings.filter { !$0.isEmpty }.compactMap { URL(string: $0) }
+      guard !urls.isEmpty else { throw HTTPError(.badRequest, message: "No valid URLs") }
+      let workflowId = "compress-\(UUID().uuidString.prefix(8))"
+
+      await progressStore.store(urls: urls, archiveName: archiveName, for: workflowId)
+
+      return HTMLResponse {
+        CompressorStatusContainer(workflowId: workflowId)
+      }
+    }
+
+    router.get("/compressor/status/:id") { request, context in
+      let id = try context.parameters.require("id")
+      async let info = system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: id))
+      async let urls = progressStore.urls(for: id)
+      let (resolvedInfo, resolvedURLs) = try await (info, urls)
+      return HTMLResponse {
+        CompressorStatusCard(workflowId: id, info: resolvedInfo, urls: resolvedURLs)
+      }
+    }
+
+    router.get("/compressor/stream/:id") { request, context in
+      let id = try context.parameters.require("id")
+
+      let stream = AsyncStream<ByteBuffer> { sseContinuation in
+        let task = Task {
+          let entry = await progressStore.entry(for: id)
+          let urls = entry?.urls ?? []
+          let archiveName = entry?.archiveName ?? "archive"
+
+          let session = Session(actorSystem: system) { message, fractions in
+            if let info = try? await system.workflows.getStatus(
+              type: FileCompressorWorkflow.self,
+              options: WorkflowOptions(id: id)
+            ) {
+              let html = CompressorStatusCard(workflowId: id, info: info, urls: urls, downloadFractions: fractions).render()
+              sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
+              if case .completed = info.status {
+                sseContinuation.yield(ByteBuffer(string: "event: done\ndata:\n\n"))
+                sseContinuation.finish()
+              }
+            }
+          }
+
+          let compressor: Compressor = try await system.virtualActors.getActor(
+            identifiedBy: .init(rawValue: "compressor-\(id)"),
+            dependency: Compressor.Dependency(sessionId: id)
+          )
+
+          do {
+            _ = try await compressor.fetch(id: id, urls: urls, name: archiveName, from: session)
+            if let info = try? await system.workflows.getStatus(
+              type: FileCompressorWorkflow.self,
+              options: WorkflowOptions(id: id)
+            ) {
+              let html = CompressorStatusCard(workflowId: id, info: info, urls: urls).render()
+              sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
+            }
+            sseContinuation.yield(ByteBuffer(string: "event: done\ndata:\n\n"))
+            sseContinuation.finish()
+          } catch WorkflowRuntimeError.workflowInputMismatch {
+            // Reconnect after crash: session mismatch — poll until done.
+            while !Task.isCancelled {
+              guard
+                let info = try? await system.workflows.getStatus(
+                  type: FileCompressorWorkflow.self,
+                  options: WorkflowOptions(id: id)
+                )
+              else { break }
+              let html = CompressorStatusCard(workflowId: id, info: info, urls: urls).render()
+              sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
+              switch info.status {
+              case .completed, .failed, .cancelled:
+                sseContinuation.yield(ByteBuffer(string: "event: done\ndata:\n\n"))
+                sseContinuation.finish()
+                return
+              default:
+                try? await Task.sleep(for: .seconds(1))
+              }
+            }
+          } catch is CancellationError {
+            // Client disconnected — normal, Compressor keeps running
+          } catch {
+            if let info = try? await system.workflows.getStatus(
+              type: FileCompressorWorkflow.self,
+              options: WorkflowOptions(id: id)
+            ) {
+              let html = CompressorStatusCard(workflowId: id, info: info, urls: urls).render()
+              sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
+            }
+            sseContinuation.yield(ByteBuffer(string: "event: done\ndata:\n\n"))
+            sseContinuation.finish()
+          }
+        }
+        sseContinuation.onTermination = { _ in task.cancel() }
+      }
+
+      return Response(
+        status: .ok,
+        headers: [
+          .contentType: "text/event-stream",
+          .cacheControl: "no-cache",
+        ],
+        body: ResponseBody(asyncSequence: stream)
+      )
+    }
+
+    router.get("/compressor/download/:id") { request, context in
+      let id = try context.parameters.require("id")
+      let info = try await system.workflows.getStatus(
+        type: FileCompressorWorkflow.self,
+        options: WorkflowOptions(id: id)
+      )
+      guard case .completed(let data) = info.status,
+        let result = try? JSONDecoder().decode(FileCompressorWorkflow.Output.self, from: data)
+      else {
+        throw HTTPError(.notFound)
+      }
+      let fileData = try Data(contentsOf: URL(fileURLWithPath: result.archivePath))
+      return Response(
+        status: .ok,
+        headers: [
+          .contentType: "application/zip",
+          .contentDisposition: "attachment; filename=\"archive.zip\"",
+        ],
+        body: .init(byteBuffer: .init(data: fileData))
+      )
     }
 
     router.get("/dashboard") { request, context in
@@ -197,6 +360,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
 
     let virtualNode = await VirtualNode(actorSystem: system)
     let worker = await DurableActivityDispatchWorker<TravelBookingWorkflow>(actorSystem: system)
+    let compressorWorker = await DurableActivityDispatchWorker<FileCompressorWorkflow>(actorSystem: system)
 
     if let postgresClient {
       hb.addServices(postgresClient, daemon, system, streamConnections)
@@ -289,6 +453,27 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
 }
 
 // MARK: - Extensions
+
+private actor WorkflowProgressStore {
+  struct Entry {
+    let urls: [URL]
+    let archiveName: String
+  }
+
+  private var entries: [String: Entry] = [:]
+
+  func store(urls: [URL], archiveName: String, for id: String) {
+    entries[id] = Entry(urls: urls, archiveName: archiveName)
+  }
+
+  func entry(for id: String) -> Entry? {
+    entries[id]
+  }
+
+  func urls(for id: String) -> [URL] {
+    entries[id]?.urls ?? []
+  }
+}
 
 extension ClusterSystem: @retroactive Service {
   public func run() async throws {
