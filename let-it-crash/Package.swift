@@ -19,8 +19,6 @@ let package = Package(
     .package(url: "https://github.com/elementary-swift/elementary.git", from: "0.6.0"),
     .package(url: "https://github.com/apple/swift-distributed-actors.git", branch: "main"),
     .package(url: "https://github.com/akbashev/postgres-event-store.git", branch: "main"),
-
-    .package(path: "../remote"),
   ],
   targets: [
     .target(
@@ -48,7 +46,6 @@ let package = Package(
       dependencies: [
         "Backend",
         "WebApp",
-        .product(name: "SeedNode", package: "remote"),
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
         .product(name: "EventSourcing", package: "cluster-event-sourcing"),
         .product(name: "VirtualActors", package: "cluster-virtual-actors"),

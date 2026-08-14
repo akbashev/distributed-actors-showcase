@@ -1,8 +1,11 @@
-# Travel Booking Example
+# Durable Workflows Examples
 
-A demo application showing durable workflows in action with a travel booking saga: reserve funds → book flight → book hotel → capture payment, with automatic compensation on failure.
+Two demo applications showing durable workflows in action:
 
-The app runs a local web UI at `http://localhost:8080`. Multiple browser tabs can connect as different users. Clicking **Crash Server** mid-booking demonstrates durability — restart the server and the workflow resumes from where it left off.
+- **Travel Booking** — a saga: reserve funds → book flight → book hotel → capture payment, with automatic compensation on failure.
+- **File Compressor** — downloads files and archives them into a zip, with live progress over SSE.
+
+The app runs a local web UI at `http://localhost:8080` (landing page links to both demos). In Travel Booking, multiple browser tabs can connect as different users. Clicking **Crash Server** mid-booking demonstrates durability — restart the server and the workflow resumes from where it left off.
 
 ![Booking example](booking-example.png)
 
@@ -39,6 +42,9 @@ Open `http://localhost:8080` in your browser.
 
 ## Testing Crash Recovery
 
+> [!NOTE]
+> The demo runs everything in a single process — the cluster daemon, the node hosting `UserActor`/workflow actors, the activity workers, and the web server (standalone style). A "crash" therefore restarts the whole world: durability is demonstrated by the event log surviving the restart, not by other nodes staying up. The building blocks (`ClusterSystem.startClusterDaemon`, `.clusterd` discovery, separate worker nodes) all support splitting roles across processes if you want real node failure.
+
 1. Open `http://localhost:8080`, enter a username, open the dashboard.
 2. Click **Book Trip Now** and click **Crash Server** before the booking finishes.
 3. Restart the server with the same command.
@@ -52,6 +58,12 @@ With **Postgres** data survives even if the journal directory is wiped.
 ```
 Examples/
 ├── Package.swift                   # standalone Swift package
+├── EventStores/
+│   └── FileEventStore.swift        # file-based EventStore implementation
+├── FileCompressor/
+│   ├── FileCompressorWorkflow.swift
+│   ├── FileCompressorActivities.swift
+│   └── CompressorSession.swift     # Compressor virtual actor + Connection
 ├── TravelBooking/
 │   ├── TravelBookingWorkflow.swift # saga: reserve → book → capture / compensate
 │   ├── TravelBookingActivities.swift
@@ -60,9 +72,9 @@ Examples/
 │   ├── BookingMessage.swift
 │   └── Connection.swift
 └── DurableWorkflowsDemo/
-    ├── App.swift                   # CLI entry point, HTTP/WS server
-    ├── FileEventStore.swift        # file-based EventStore implementation
-    ├── Views.swift                 # Elementary HTML components
+    ├── App.swift                   # CLI entry point, HTTP/WS/SSE server
+    ├── Views.swift                 # Travel Booking Elementary components
+    ├── CompressorViews.swift       # File Compressor Elementary components
     ├── StreamConnections.swift     # WebSocket session management
     └── Public/                     # static assets (CSS, JS)
 ```
@@ -70,7 +82,7 @@ Examples/
 ## CLI Options
 
 ```
-USAGE: demo [--database-url <url>]
+USAGE: durable-workflows-demo [--database-url <url>]
 
 OPTIONS:
   --database-url <url>   PostgreSQL connection URL.

@@ -36,16 +36,18 @@ The core idea: an LLM call should be able to run locally on-device or on a remot
 
 ## Installation
 
+The package currently lives in the [distributed-actors-showcase](https://github.com/akbashev/distributed-actors-showcase) monorepo. Clone it and use a local path dependency:
+
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/akbashev/distributed-actors-showcase.git", branch: "main"),
+    .package(path: "../distributed-actors-showcase/seamless-llms"),
 ],
 targets: [
     .target(
         name: "MyTarget",
         dependencies: [
-            .product(name: "SeamlessClient", package: "distributed-actors-showcase"),
+            .product(name: "SeamlessClient", package: "seamless-llms"),
         ]
     ),
 ]
@@ -136,6 +138,9 @@ print(plan.title)
 ### 5. Start the backend
 
 The backend has two parts: the HTTP server that handles client connections, and a separate worker node that executes one-shot requests. Workers run on a separate `ClusterSystem` and join the cluster automatically.
+
+> [!NOTE]
+> The server and workers can run in the same process (as below) or as separate processes — a worker node only needs its own `ClusterSystem` with `.clusterd` discovery to join the same cluster. The `Examples/Conversation` backend runs everything (cluster daemon, server, workers, web app) standalone in one process; see `Examples/Conversation/Sources/ConversationBackend/ConversationBackend.swift`.
 
 > [!IMPORTANT]
 > Every schema you want clients to use must be registered in `schemas:` when starting the server. The backend uses the schema's `identifier` to route incoming requests to the correct type and model instructions. Unregistered schemas will be rejected.
