@@ -12,6 +12,7 @@ extension SeamlessBackend {
   public typealias SessionID = String
 
   @EventSourced
+  @VirtualActor
   distributed actor Session {
 
     typealias ActorSystem = ClusterSystem
@@ -27,9 +28,14 @@ extension SeamlessBackend {
       }
     }
 
+    struct State: Codable, Sendable {
+      var recentMessages: [StreamMessage] = []
+    }
+
+    var state = State()
+
     private let encoder: JSONEncoder = JSONEncoder()
     private let sessionId: SessionID
-    private var recentMessages: [StreamMessage] = []
     private var connections: Set<AnyConnection> = []
     private var task: Task<Void, any Error>?
     private let engine: SeamlessEngine
@@ -101,7 +107,7 @@ extension SeamlessBackend {
           }
         }
         try await self.connections.insert(AnyConnection(connection))
-        self.broadcast(self.recentMessages)
+        self.broadcast(self.state.recentMessages)
         if let transcript = await self.engine.transcript(for: self.sessionId),
           let data = try? JSONEncoder().encode(transcript)
         {
@@ -149,30 +155,13 @@ extension SeamlessBackend {
   }
 }
 
-extension SeamlessBackend.Session: VirtualActor {
-
-  static func spawn(
-    on actorSystem: ClusterSystem,
-    dependency: any Sendable & Codable
-  ) async throws -> Self {
-    guard let dependency = dependency as? Dependency else {
-      throw VirtualActorError.spawnDependencyTypeMismatch
-    }
-    return try await Self(
-      actorSystem: actorSystem,
-      dependency: dependency
-    )
-  }
-
-}
-
 // Event sourced
 extension SeamlessBackend.Session {
 
   distributed func handleEvent(_ event: Event) {
     switch event {
     case .message(let message):
-      self.recentMessages.append(message)
+      self.state.recentMessages.append(message)
     case let .transcript(id, transcript):
       Task { await self.engine.updateSession(with: id, transcript: transcript) }
     }

@@ -8,12 +8,12 @@ public struct FileCompressorWorkflow {
   public struct Input: Codable, Sendable {
     public let urls: [URL]
     public let archiveName: String
-    public let session: Session
+    public let connection: Connection
 
-    public init(urls: [URL], archiveName: String, session: Session) {
+    public init(urls: [URL], archiveName: String, connection: Connection) {
       self.urls = urls
       self.archiveName = archiveName
-      self.session = session
+      self.connection = connection
     }
   }
 
@@ -28,16 +28,22 @@ public struct FileCompressorWorkflow {
   public init() {}
 
   public func run(input: Input, context: WorkflowContext) async throws -> Output {
-    try? await input.session.notify(.started)
-    var files: [String] = []
+    try? await input.connection.notify(.started)
 
-    for (index, url) in input.urls.enumerated() {
-      let path = try await context.executeActivity(
-        FileCompressorActivities.Activities.FetchAndStore.self,
-        input: .init(url: url, index: index, session: input.session)
-      )
-      files.append(path)
-      try? await input.session.notify(.download(file: url, fileIndex: index, fraction: 1.0))
+    let files: [String] = try await withThrowingTaskGroup(of: (Int, String).self) { group in
+      for (index, url) in input.urls.enumerated() {
+        group.addTask {
+          let path = try await context.executeActivity(
+            FileCompressorActivities.Activities.FetchAndStore.self,
+            input: .init(url: url, index: index, connection: input.connection)
+          )
+          try? await input.connection.notify(.download(file: url, fileIndex: index, fraction: 1.0))
+          return (index, path)
+        }
+      }
+      var results: [(Int, String)] = []
+      for try await result in group { results.append(result) }
+      return results.sorted { $0.0 < $1.0 }.map(\.1)
     }
 
     let archivePath = try await context.executeActivity(

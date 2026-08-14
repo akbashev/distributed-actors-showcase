@@ -103,10 +103,33 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
     // --- COMPRESSOR ROUTES ---
 
     router.get("/compressor") { _, _ in
-      HTMLResponse { CompressorPage() }
+      HTMLResponse { CompressorEntryPage() }
     }
 
-    router.post("/compressor/compress") { request, _ in
+    router.get("/compressor/session") { request, _ in
+      guard let id = request.uri.queryParameters["id"].map(String.init), !id.isEmpty else {
+        throw HTTPError(.badRequest)
+      }
+      let hasWorkflow =
+        (try? await system.workflows.getStatus(
+          type: FileCompressorWorkflow.self,
+          options: WorkflowOptions(id: id)
+        )) != nil
+      return HTMLResponse { CompressorSessionPage(sessionId: id, hasWorkflow: hasWorkflow) }
+    }
+
+    router.get("/compressor/session/:id") { request, context in
+      let id = try context.parameters.require("id")
+      let hasWorkflow =
+        (try? await system.workflows.getStatus(
+          type: FileCompressorWorkflow.self,
+          options: WorkflowOptions(id: id)
+        )) != nil
+      return HTMLResponse { CompressorSessionPage(sessionId: id, hasWorkflow: hasWorkflow) }
+    }
+
+    router.post("/compressor/compress/:id") { request, context in
+      let id = try context.parameters.require("id")
       let body = try await request.body.collect(upTo: 1024 * 1024)
       let raw = String(buffer: body)
 
@@ -126,22 +149,33 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
 
       let urls = urlStrings.filter { !$0.isEmpty }.compactMap { URL(string: $0) }
       guard !urls.isEmpty else { throw HTTPError(.badRequest, message: "No valid URLs") }
-      let workflowId = "compress-\(UUID().uuidString.prefix(8))"
 
-      await progressStore.store(urls: urls, archiveName: archiveName, for: workflowId)
+      await progressStore.store(urls: urls, archiveName: archiveName, for: id)
 
-      return HTMLResponse {
-        CompressorStatusContainer(workflowId: workflowId)
-      }
+      return HTMLResponse { CompressorStatusContainer(workflowId: id) }
+    }
+
+    router.post("/compressor/retry/:id") { request, context in
+      let id = try context.parameters.require("id")
+      return HTMLResponse { CompressorStatusContainer(workflowId: id) }
     }
 
     router.get("/compressor/status/:id") { request, context in
       let id = try context.parameters.require("id")
-      async let info = system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: id))
-      async let urls = progressStore.urls(for: id)
-      let (resolvedInfo, resolvedURLs) = try await (info, urls)
+      let info = try await system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: id))
+      var urls = await progressStore.urls(for: id)
+      if urls.isEmpty,
+        let startedEvent = info.events.first(where: {
+          if case .executionStarted = $0 { return true }
+          return false
+        }),
+        case .executionStarted(let inputData) = startedEvent,
+        let preview = try? JSONDecoder().decode(WorkflowInputPreview.self, from: inputData)
+      {
+        urls = preview.urls
+      }
       return HTMLResponse {
-        CompressorStatusCard(workflowId: id, info: resolvedInfo, urls: resolvedURLs)
+        CompressorStatusCard(workflowId: id, info: info, urls: urls)
       }
     }
 
@@ -151,10 +185,31 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
       let stream = AsyncStream<ByteBuffer> { sseContinuation in
         let task = Task {
           let entry = await progressStore.entry(for: id)
-          let urls = entry?.urls ?? []
-          let archiveName = entry?.archiveName ?? "archive"
+          var resolvedURLs = entry?.urls ?? []
+          var resolvedArchiveName = entry?.archiveName ?? "archive"
 
-          let session = Session(actorSystem: system) { message, fractions in
+          if resolvedURLs.isEmpty,
+            let info = try? await system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: id)),
+            let startedEvent = info.events.first(where: {
+              if case .executionStarted = $0 { return true }
+              return false
+            }),
+            case .executionStarted(let inputData) = startedEvent,
+            let preview = try? JSONDecoder().decode(WorkflowInputPreview.self, from: inputData)
+          {
+            resolvedURLs = preview.urls
+            resolvedArchiveName = preview.archiveName
+          }
+
+          let urls = resolvedURLs
+          let archiveName = resolvedArchiveName
+
+          let compressor: Compressor = try await system.virtualActors.getActor(
+            identifiedBy: .init(rawValue: "compressor-\(id)"),
+            dependency: Compressor.Dependency(sessionId: id)
+          )
+
+          let connection = Connection(actorSystem: system) { message, fractions in
             if let info = try? await system.workflows.getStatus(
               type: FileCompressorWorkflow.self,
               options: WorkflowOptions(id: id)
@@ -167,14 +222,11 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
               }
             }
           }
-
-          let compressor: Compressor = try await system.virtualActors.getActor(
-            identifiedBy: .init(rawValue: "compressor-\(id)"),
-            dependency: Compressor.Dependency(sessionId: id)
-          )
+          let connectionId = connection.id
+          try await compressor.addConnection(connection)
 
           do {
-            _ = try await compressor.fetch(id: id, urls: urls, name: archiveName, from: session)
+            _ = try await compressor.fetch(id: id, urls: urls, name: archiveName, connection: connection)
             if let info = try? await system.workflows.getStatus(
               type: FileCompressorWorkflow.self,
               options: WorkflowOptions(id: id)
@@ -185,7 +237,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
             sseContinuation.yield(ByteBuffer(string: "event: done\ndata:\n\n"))
             sseContinuation.finish()
           } catch WorkflowRuntimeError.workflowInputMismatch {
-            // Reconnect after crash: session mismatch — poll until done.
+            // Reconnect after crash: connection changed — poll and broadcast until done.
             while !Task.isCancelled {
               guard
                 let info = try? await system.workflows.getStatus(
@@ -217,6 +269,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
             sseContinuation.yield(ByteBuffer(string: "event: done\ndata:\n\n"))
             sseContinuation.finish()
           }
+          try? await compressor.removeConnection(id: connectionId)
         }
         sseContinuation.onTermination = { _ in task.cancel() }
       }
@@ -359,8 +412,13 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
     )
 
     let virtualNode = await VirtualNode(actorSystem: system)
-    let worker = await DurableActivityDispatchWorker<TravelBookingWorkflow>(actorSystem: system)
-    let compressorWorker = await DurableActivityDispatchWorker<FileCompressorWorkflow>(actorSystem: system)
+    var travelworkers: [DurableActivityDispatchWorker<TravelBookingWorkflow>] = []
+    var compressorWorkers: [DurableActivityDispatchWorker<FileCompressorWorkflow>] = []
+
+    for _ in 0..<10 {
+      await travelworkers.append(DurableActivityDispatchWorker<TravelBookingWorkflow>(actorSystem: system))
+      await compressorWorkers.append(DurableActivityDispatchWorker<FileCompressorWorkflow>(actorSystem: system))
+    }
 
     if let postgresClient {
       hb.addServices(postgresClient, daemon, system, streamConnections)
@@ -479,6 +537,11 @@ extension ClusterSystem: @retroactive Service {
   public func run() async throws {
     try await self.terminated
   }
+}
+
+private struct WorkflowInputPreview: Decodable {
+  let urls: [URL]
+  let archiveName: String
 }
 
 enum DurableWorkflowsDemoError: Swift.Error {

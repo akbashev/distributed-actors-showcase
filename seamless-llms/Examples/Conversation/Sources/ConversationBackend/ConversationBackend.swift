@@ -53,7 +53,7 @@ struct ConversationBackend: AsyncParsableCommand {
       $0.discovery = .clusterd
       for plugin in plugins { $0.plugins.install(plugin: plugin) }
     }
-      
+
     let runtime = await SeamlessBackend.HTTPServer(
       configuration: .init(host: network.host, port: network.httpPort),
       schemas: [TripPlan.self, EmojiReaction.self]

@@ -1,0 +1,193 @@
+:root {
+    --bg-color: #fcfcfc;
+    --card-bg: #ffffff;
+    --text-main: #1d1d1f;
+    --text-secondary: #86868b;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --border: #d2d2d7;
+    --success: #34c759;
+    --error: #ff3b30;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Myriad Set Pro", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    margin: 0;
+    padding: 0;
+    line-height: 1.47059;
+    font-weight: 400;
+    letter-spacing: -0.022em;
+    display: flex;
+    justify-content: center;
+}
+
+.container {
+    width: 100%;
+    max-width: 680px;
+    padding: 40px 20px;
+}
+
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 32px;
+}
+
+h1 {
+    font-size: 32px;
+    line-height: 1.125;
+    font-weight: 600;
+    letter-spacing: .004em;
+    margin: 0;
+}
+
+h2 {
+    font-size: 19px;
+    line-height: 1.21053;
+    font-weight: 600;
+    letter-spacing: .012em;
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+p {
+    font-size: 17px;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+.card {
+    background: var(--card-bg);
+    padding: 24px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 24px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+input, select {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 17px;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease;
+}
+
+input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.expression-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.expression-row input {
+    flex: 1;
+}
+
+.expression-row select {
+    width: auto;
+    min-width: 60px;
+}
+
+.btn-container {
+    display: flex;
+    gap: 12px;
+}
+
+button {
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-size: 17px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    width: 100%;
+}
+
+button:hover {
+    background-color: var(--accent-hover);
+}
+
+.btn-secondary {
+    background-color: transparent;
+    color: var(--accent);
+    font-size: 14px;
+    text-decoration: none;
+    transition: opacity 0.2s ease;
+}
+
+.btn-secondary:hover {
+    opacity: 0.7;
+}
+
+/* History Table */
+.history-container {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+th {
+    text-align: left;
+    padding: 12px 8px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    border-bottom: 1px solid var(--border);
+}
+
+td {
+    padding: 16px 8px;
+    border-bottom: 1px solid #f2f2f7;
+}
+
+.success {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.error {
+    color: var(--error);
+    font-weight: 600;
+}
+
+code {
+    font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: #f2f2f7;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.timestamp {
+    color: var(--text-secondary);
+    white-space: nowrap;
+}

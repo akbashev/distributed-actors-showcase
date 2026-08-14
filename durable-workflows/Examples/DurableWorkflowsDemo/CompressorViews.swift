@@ -5,8 +5,41 @@ import ElementaryHTMXSSE
 import FileCompressor
 import Foundation
 
-struct CompressorPage: HTMLDocument, Sendable {
+struct CompressorEntryPage: HTMLDocument, Sendable {
   var title: String { "File Compressor" }
+
+  var head: some HTML {
+    meta(.charset(.utf8))
+    meta(.name("viewport"), .content("width=device-width, initial-scale=1"))
+    link(.href("/style.css"), .rel(.stylesheet))
+  }
+
+  var body: some HTML {
+    main(.class("container")) {
+      section(.class("card"), .style("max-width: 500px; margin: 4rem auto; text-align: center;")) {
+        h2 { "File Compressor" }
+        p { "Enter a session ID to start or resume a compression." }
+        form(.action("/compressor/session"), .method(.get), .style("margin-top: 2rem;")) {
+          div(.style("display: flex; flex-direction: column; gap: 1rem;")) {
+            input(
+              .type(.text),
+              .name("id"),
+              .placeholder("my-session"),
+              .required,
+              .style("text-align: center; font-family: monospace;")
+            )
+            button(.type(.submit)) { "Enter" }
+          }
+        }
+      }
+    }
+  }
+}
+
+struct CompressorSessionPage: HTMLDocument, Sendable {
+  let sessionId: String
+  var hasWorkflow: Bool = false
+  var title: String { "File Compressor – \(sessionId)" }
 
   var head: some HTML {
     meta(.charset(.utf8))
@@ -20,10 +53,13 @@ struct CompressorPage: HTMLDocument, Sendable {
     main(.class("container")) {
       header {
         h1 { "File Compressor" }
-        p(.style("opacity: 0.7;")) { "Paste URLs, press Compress. Crash the server mid-way and watch it resume." }
+        p(.style("opacity: 0.7;")) {
+          "Session: "
+          code { sessionId }
+        }
       }
       div(.id("main-app")) {
-        CompressorFormFragment()
+        CompressorFormFragment(sessionId: sessionId, hasWorkflow: hasWorkflow)
       }
     }
   }
@@ -108,11 +144,14 @@ private enum URLListScript {
 }
 
 struct CompressorFormFragment: HTML, Sendable {
+  let sessionId: String
+  var hasWorkflow: Bool = false
+
   var body: some HTML {
     section(.class("card")) {
       h2 { "Add URLs" }
       form(
-        .hx.post("/compressor/compress"),
+        .hx.post("/compressor/compress/\(sessionId)"),
         .hx.target("#workflow-status"),
         .hx.swap(.innerHTML)
       ) {
@@ -124,7 +163,11 @@ struct CompressorFormFragment: HTML, Sendable {
       }
       script { HTMLRaw(URLListScript.source) }
     }
-    div(.id("workflow-status"), .style("margin-top: 2rem;")) {}
+    div(.id("workflow-status"), .style("margin-top: 2rem;")) {
+      if hasWorkflow {
+        CompressorStatusContainer(workflowId: sessionId)
+      }
+    }
     section(.class("card"), .style("border-color: var(--danger); text-align: center; margin-top: 2rem;")) {
       h2(.style("color: var(--danger)")) { "Durability Test" }
       p { "Crash the server mid-fetch and restart — the workflow resumes from the last completed file." }
@@ -168,7 +211,7 @@ struct CompressorStatusCard: HTML, Sendable {
     ) {
       div(.style("display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;")) {
         div {
-          h3(.style("margin: 0;")) { "Compressing..." }
+          h3(.style("margin: 0;")) { statusTitle }
           code(.style("opacity: 0.6; font-size: 0.8rem;")) { workflowId }
         }
         span(.class("badge \(badgeClass)")) { info.status.name }
@@ -196,6 +239,15 @@ struct CompressorStatusCard: HTML, Sendable {
         }
       }
 
+      if case .failed = info.status {
+        button(
+          .hx.post("/compressor/retry/\(workflowId)"),
+          .hx.target("#stream-\(workflowId)"),
+          .hx.swap(.outerHTML),
+          .style("margin-bottom: 1rem;")
+        ) { "↩ Retry" }
+      }
+
       div(.class("history-list")) {
         ForEach(info.events.reversed()) { event in
           div(.class("history-item")) {
@@ -203,6 +255,16 @@ struct CompressorStatusCard: HTML, Sendable {
           }
         }
       }
+    }
+  }
+
+  private var statusTitle: String {
+    switch info.status {
+    case .running: return "Compressing..."
+    case .completed: return "Compression complete"
+    case .failed: return "Compression failed"
+    case .cancelled: return "Cancelled"
+    case .idle: return "Queued"
     }
   }
 
@@ -252,14 +314,24 @@ private struct FileProgressSection: HTML, Sendable {
   let isRunning: Bool
   var downloadFractions: [Int: Double] = [:]
 
+  private struct IndexOnly: Decodable { let index: Int }
+
+  private func fileIndex(fromKey key: String) -> Int? {
+    guard let colon = key.firstIndex(of: ":") else { return nil }
+    let base64 = String(key[key.index(after: colon)...])
+    guard let data = Data(base64Encoded: base64) else { return nil }
+    return try? JSONDecoder().decode(IndexOnly.self, from: data).index
+  }
+
   // Last known state per index (succeeded wins over failed if both present)
   private var stateByIndex: [Int: FileState] {
     var result: [Int: FileState] = [:]
     for event in events {
       switch event {
-      case .activitySucceeded(let i, _, _) where i < urls.count: result[i] = .done
-      case .activityFailed(let i, _, _) where i < urls.count:
-        if result[i] != .done { result[i] = .failed }
+      case .activitySucceeded(let key, _, _):
+        if let i = fileIndex(fromKey: key), i < urls.count { result[i] = .done }
+      case .activityFailed(let key, _, _):
+        if let i = fileIndex(fromKey: key), i < urls.count, result[i] != .done { result[i] = .failed }
       default: break
       }
     }
@@ -268,9 +340,7 @@ private struct FileProgressSection: HTML, Sendable {
 
   private func state(for index: Int, resolved: [Int: FileState]) -> FileState {
     if let s = resolved[index] { return s }
-    guard isRunning else { return .pending }
-    let firstPending = (0..<urls.count).first { resolved[$0] == nil }
-    return firstPending == index ? .fetching : .pending
+    return isRunning ? .fetching : .pending
   }
 
   var body: some HTML {

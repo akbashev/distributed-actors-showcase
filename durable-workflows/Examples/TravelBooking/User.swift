@@ -15,7 +15,8 @@ public enum UserEvent: Codable, Sendable {
 }
 
 @EventSourced
-public distributed actor UserActor: VirtualActor {
+@VirtualActor
+public distributed actor UserActor {
   public typealias ActorSystem = ClusterSystem
   public typealias Event = UserEvent
 
@@ -27,14 +28,14 @@ public distributed actor UserActor: VirtualActor {
     }
   }
 
-  struct State: Sendable {
+  public struct State: Codable, Sendable {
     var balance: Int = 200_000
     var workflowIDs: [String] = []
     var holds: [String: Int] = [:]
     var holdsHistory: [String: Int] = [:]
   }
 
-  private var state = State()
+  public var state = State()
   private var connections: Set<Connection> = []
   private var currentTask: Task<Void, Never>?
   private let persistenceID: String
@@ -43,16 +44,6 @@ public distributed actor UserActor: VirtualActor {
     self.actorSystem = actorSystem
     self.persistenceID = "user-\(dependency.username)"
     try await actorSystem.journal.register(actor: self, with: self.persistenceID)
-  }
-
-  public static func spawn(
-    on actorSystem: ClusterSystem,
-    dependency: any Sendable & Codable
-  ) async throws -> Self {
-    guard let typedDependency = dependency as? Dependency else {
-      throw VirtualActorError.spawnDependencyTypeMismatch
-    }
-    return try await Self(actorSystem: actorSystem, dependency: typedDependency)
   }
 
   distributed public func send(message: BookingMessage.UserAction, from connection: Connection) async throws {

@@ -29,14 +29,15 @@ public actor FileEventStore: EventStore {
     }
   }
 
-  public func eventsFor<Event: Codable & Sendable>(id: String) async throws -> [Event] {
+  public func eventsFor<Event: Codable & Sendable>(id: String, fromSequenceNumber: Int64) async throws -> [Event] {
     let url = fileURL(for: id)
     guard FileManager.default.fileExists(atPath: url.path) else { return [] }
     let data = try Data(contentsOf: url)
-    return
+    let events =
       try data
       .split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
       .map { try decoder.decode(Event.self, from: Data($0)) }
+    return Array(events.dropFirst(max(0, Int(fromSequenceNumber - 1))))
   }
 
   private func fileURL(for id: String) -> URL {

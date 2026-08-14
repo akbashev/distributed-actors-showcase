@@ -9,12 +9,12 @@ public struct FileCompressorActivities {
   public struct FetchRequest: Codable, Sendable {
     public let url: URL
     public let index: Int
-    public let session: Session
+    public let connection: Connection
 
-    public init(url: URL, index: Int, session: Session) {
+    public init(url: URL, index: Int, connection: Connection) {
       self.url = url
       self.index = index
-      self.session = session
+      self.connection = connection
     }
   }
 
@@ -35,7 +35,7 @@ public struct FileCompressorActivities {
     for try await status in try await URLSession.shared.download(for: request) {
       switch status {
       case .downloading(let progress):
-        try? await input.session.notify(.download(file: input.url, fileIndex: input.index, fraction: progress))
+        try? await input.connection.notify(.download(file: input.url, fileIndex: input.index, fraction: progress))
       case let .finished(url, response):
         result = (url, response)
       }
@@ -105,7 +105,7 @@ extension URLSession {
       self.changeHandler = changeHandler
     }
 
-    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+    func urlSession(_ connection: URLSession, didCreateTask task: URLSessionTask) {
       self.observation.withLock {
         $0 = task.progress.observe(\.fractionCompleted) { progress, change in
           self.changeHandler(progress)
