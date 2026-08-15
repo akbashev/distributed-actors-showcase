@@ -1,55 +1,29 @@
 import Distributed
 import DistributedCluster
 import DurableWorkflows
-import EventSourcing
 import Foundation
 import VirtualActors
 
-@EventSourced
 @VirtualActor
 public distributed actor Compressor {
 
   public typealias ActorSystem = ClusterSystem
 
-  private let sessionId: String
   private var connections: [ClusterSystem.ActorID: Connection] = [:]
 
-  public struct State: Codable, Sendable {
-    public var files: [String: File] = [:]
-  }
-
-  public var state = State()
-
   public struct Dependency: Codable, Sendable {
-    public let sessionId: String
-    public init(sessionId: String) { self.sessionId = sessionId }
+    public init() {}
   }
 
-  public init(actorSystem: ClusterSystem, sessionId: String) {
+  public init(actorSystem: ClusterSystem) {
     self.actorSystem = actorSystem
-    self.sessionId = sessionId
-  }
-
-  public struct File: Sendable, Codable {
-    public enum Status: Sendable, Codable {
-      case started
-      case loading(index: Int, progress: Double)
-      case finished
-    }
-    public let name: String
-    public let status: File.Status
-  }
-
-  public enum Event: Sendable, Codable {
-    case fileStarted(name: String)
-    case fileFinished(name: String)
   }
 
   public static func spawn(on actorSystem: ClusterSystem, dependency: any Sendable & Codable) async throws -> Compressor {
-    guard let dep = dependency as? Dependency else {
+    guard dependency is Dependency else {
       throw VirtualActorError.spawnDependencyTypeMismatch
     }
-    return Compressor(actorSystem: actorSystem, sessionId: dep.sessionId)
+    return Compressor(actorSystem: actorSystem)
   }
 
   distributed public func addConnection(_ connection: Connection) {
@@ -60,32 +34,30 @@ public distributed actor Compressor {
     connections.removeValue(forKey: id)
   }
 
-  distributed public func fetch(id: String, urls: [URL], name: String, connection: Connection) async throws -> String {
+  distributed public func fetch(id: WorkflowID, urls: [URL], name: String, connection: Connection) async throws -> String {
     let output = try await actorSystem.workflows.execute(
       type: FileCompressorWorkflow.self,
-      options: .init(id: id),
+      // Automatic retry: a transient download/zip failure re-runs the
+      // workflow after a backoff instead of failing the session. Completed
+      // activities replay from the journal, so a retry only re-dispatches
+      // what never finished.
+      options: .init(
+        id: id,
+        retryPolicy: RetryPolicy(initialInterval: .seconds(2), maximumAttempts: 3)
+      ),
       input: FileCompressorWorkflow.Input(urls: urls, archiveName: name, connection: connection)
     )
-    try? await broadcast(.archieved(URL(fileURLWithPath: output.archivePath)))
+    await broadcast(.archieved(URL(fileURLWithPath: output.archivePath)))
     return output.archivePath
   }
 
   distributed public func notify(_ message: Connection.Message) async throws {
-    try await broadcast(message)
+    await broadcast(message)
   }
 
   private func broadcast(_ message: Connection.Message) async {
     for connection in connections.values {
       try? await connection.notify(message)
-    }
-  }
-
-  public func handleEvent(_ event: Event) {
-    switch event {
-    case .fileStarted(let name):
-      self.state.files[name] = File(name: name, status: .started)
-    case .fileFinished(let name):
-      self.state.files[name] = File(name: name, status: .finished)
     }
   }
 }

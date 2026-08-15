@@ -30,7 +30,8 @@ public struct FileCompressorActivities {
 
   @Activity
   public func fetchAndStore(input: FetchRequest, context: ActivityContext) async throws -> String {
-    let request = URLRequest(url: input.url)
+    var request = URLRequest(url: input.url)
+    request.timeoutInterval = 60
     var result: (url: URL, response: URLResponse)? = nil
     for try await status in try await URLSession.shared.download(for: request) {
       switch status {
@@ -52,19 +53,32 @@ public struct FileCompressorActivities {
       )
     }
 
-    let tmpDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent("durable-compressor/\(context.workflowID)")
+    // Cap individual downloads; expectedContentLength is -1 for chunked
+    // responses, so measure the actual file.
+    let maxFileBytes = 500 * 1024 * 1024
+    let size = (try? FileManager.default.attributesOfItem(atPath: result.url.path)[.size] as? Int) ?? 0
+    guard size <= maxFileBytes else {
+      throw ApplicationError.typed(
+        message: "File too large (\(size) bytes, max \(maxFileBytes))",
+        type: "FetchError",
+        isNonRetryable: true
+      )
+    }
+
+    let tmpDir = try Self.storageDir(workflowID: context.workflowID)
     try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
     let basename = input.url.lastPathComponent.isEmpty ? UUID().uuidString : input.url.lastPathComponent
     let dest = tmpDir.appendingPathComponent("\(input.index)_\(basename)")
+    // Crash between the move and journaling the result replays into an
+    // already-moved file: replace, don't fail.
+    try? FileManager.default.removeItem(at: dest)
     try FileManager.default.moveItem(at: result.url, to: dest)
     return dest.path
   }
 
   @Activity
   public func createArchive(input: ArchiveRequest, context: ActivityContext) async throws -> String {
-    let tmpDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent("durable-compressor/\(context.workflowID)")
+    let tmpDir = try Self.storageDir(workflowID: context.workflowID)
     let archivePath = tmpDir.appendingPathComponent("\(input.archiveName).zip").path
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -86,6 +100,29 @@ public struct FileCompressorActivities {
     for path in input {
       try? FileManager.default.removeItem(atPath: path)
     }
+  }
+
+  /// Stable per-workflow storage — Application Support, NOT the system temp
+  /// directory: a completed workflow's journal must not outlive the archive
+  /// it points to (tmp is purged on reboot).
+  private static func storageDir(workflowID: WorkflowID) throws -> URL {
+    try Self.applicationSupportDir()
+      .appendingPathComponent("durable-workflows-demo/compressor/\(workflowID.rawValue)")
+  }
+
+  /// `urls(for:in:)` can legally return an empty array — never index `[0]`,
+  /// and never silently fall back to a location the caller didn't choose:
+  /// fail instead.
+  public static func applicationSupportDir() throws -> URL {
+    guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    else {
+      throw ApplicationError.typed(
+        message: "Application Support directory unavailable",
+        type: "StorageError",
+        isNonRetryable: true
+      )
+    }
+    return dir
   }
 }
 

@@ -36,7 +36,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
       store = PostgresEventStore(client: client)
       postgresClient = client
     } else {
-      let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      let dir = try FileCompressorActivities.applicationSupportDir()
         .appendingPathComponent("durable-workflows/journal")
       store = try FileEventStore(directory: dir)
       postgresClient = nil
@@ -113,7 +113,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
       let hasWorkflow =
         (try? await system.workflows.getStatus(
           type: FileCompressorWorkflow.self,
-          options: WorkflowOptions(id: id)
+          options: WorkflowOptions(id: WorkflowID(rawValue: id))
         )) != nil
       return HTMLResponse { CompressorSessionPage(sessionId: id, hasWorkflow: hasWorkflow) }
     }
@@ -123,13 +123,18 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
       let hasWorkflow =
         (try? await system.workflows.getStatus(
           type: FileCompressorWorkflow.self,
-          options: WorkflowOptions(id: id)
+          options: WorkflowOptions(id: WorkflowID(rawValue: id))
         )) != nil
       return HTMLResponse { CompressorSessionPage(sessionId: id, hasWorkflow: hasWorkflow) }
     }
 
     router.post("/compressor/compress/:id") { request, context in
       let id = try context.parameters.require("id")
+      // The id lands in file paths via the workflow's storage dir —
+      // reject anything that isn't a plain safe token.
+      guard id == Self.sanitizedToken(id) else {
+        throw HTTPError(.badRequest, message: "Invalid session id")
+      }
       let body = try await request.body.collect(upTo: 1024 * 1024)
       let raw = String(buffer: body)
 
@@ -147,22 +152,23 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
         }
       }
 
-      let urls = urlStrings.filter { !$0.isEmpty }.compactMap { URL(string: $0) }
+      // http(s) only — `URL(string:)` happily accepts file://, which would
+      // turn the "download" activity into a local-file reader.
+      let urls = urlStrings.filter { !$0.isEmpty }
+        .compactMap { URL(string: $0) }
+        .filter { $0.scheme == "http" || $0.scheme == "https" }
       guard !urls.isEmpty else { throw HTTPError(.badRequest, message: "No valid URLs") }
+      guard urls.count <= 20 else { throw HTTPError(.badRequest, message: "Too many URLs (max 20)") }
+      archiveName = Self.sanitizedToken(archiveName)
 
       await progressStore.store(urls: urls, archiveName: archiveName, for: id)
 
       return HTMLResponse { CompressorStatusContainer(workflowId: id) }
     }
 
-    router.post("/compressor/retry/:id") { request, context in
-      let id = try context.parameters.require("id")
-      return HTMLResponse { CompressorStatusContainer(workflowId: id) }
-    }
-
     router.get("/compressor/status/:id") { request, context in
       let id = try context.parameters.require("id")
-      let info = try await system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: id))
+      let info = try await system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: WorkflowID(rawValue: id)))
       var urls = await progressStore.urls(for: id)
       if urls.isEmpty,
         let startedEvent = info.events.first(where: {
@@ -189,7 +195,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
           var resolvedArchiveName = entry?.archiveName ?? "archive"
 
           if resolvedURLs.isEmpty,
-            let info = try? await system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: id)),
+            let info = try? await system.workflows.getStatus(type: FileCompressorWorkflow.self, options: WorkflowOptions(id: WorkflowID(rawValue: id))),
             let startedEvent = info.events.first(where: {
               if case .executionStarted = $0 { return true }
               return false
@@ -206,13 +212,13 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
 
           let compressor: Compressor = try await system.virtualActors.getActor(
             identifiedBy: .init(rawValue: "compressor-\(id)"),
-            dependency: Compressor.Dependency(sessionId: id)
+            dependency: Compressor.Dependency()
           )
 
           let connection = Connection(actorSystem: system) { message, fractions in
             if let info = try? await system.workflows.getStatus(
               type: FileCompressorWorkflow.self,
-              options: WorkflowOptions(id: id)
+              options: WorkflowOptions(id: WorkflowID(rawValue: id))
             ) {
               let html = CompressorStatusCard(workflowId: id, info: info, urls: urls, downloadFractions: fractions).render()
               sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
@@ -226,10 +232,10 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
           try await compressor.addConnection(connection)
 
           do {
-            _ = try await compressor.fetch(id: id, urls: urls, name: archiveName, connection: connection)
+            _ = try await compressor.fetch(id: WorkflowID(rawValue: id), urls: urls, name: archiveName, connection: connection)
             if let info = try? await system.workflows.getStatus(
               type: FileCompressorWorkflow.self,
-              options: WorkflowOptions(id: id)
+              options: WorkflowOptions(id: WorkflowID(rawValue: id))
             ) {
               let html = CompressorStatusCard(workflowId: id, info: info, urls: urls).render()
               sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
@@ -242,7 +248,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
               guard
                 let info = try? await system.workflows.getStatus(
                   type: FileCompressorWorkflow.self,
-                  options: WorkflowOptions(id: id)
+                  options: WorkflowOptions(id: WorkflowID(rawValue: id))
                 )
               else { break }
               let html = CompressorStatusCard(workflowId: id, info: info, urls: urls).render()
@@ -261,7 +267,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
           } catch {
             if let info = try? await system.workflows.getStatus(
               type: FileCompressorWorkflow.self,
-              options: WorkflowOptions(id: id)
+              options: WorkflowOptions(id: WorkflowID(rawValue: id))
             ) {
               let html = CompressorStatusCard(workflowId: id, info: info, urls: urls).render()
               sseContinuation.yield(ByteBuffer(string: "event: update\ndata: \(html)\n\n"))
@@ -288,21 +294,39 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
       let id = try context.parameters.require("id")
       let info = try await system.workflows.getStatus(
         type: FileCompressorWorkflow.self,
-        options: WorkflowOptions(id: id)
+        options: WorkflowOptions(id: WorkflowID(rawValue: id))
       )
       guard case .completed(let data) = info.status,
         let result = try? JSONDecoder().decode(FileCompressorWorkflow.Output.self, from: data)
       else {
         throw HTTPError(.notFound)
       }
-      let fileData = try Data(contentsOf: URL(fileURLWithPath: result.archivePath))
+      // Stream the archive in chunks — never buffer the whole ZIP in memory.
+      let fileURL = URL(fileURLWithPath: result.archivePath)
+      let stream = AsyncStream<ByteBuffer> { continuation in
+        let task = Task {
+          do {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            while !Task.isCancelled {
+              guard let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty else { break }
+              continuation.yield(ByteBuffer(data: chunk))
+            }
+            continuation.finish()
+          } catch {
+            continuation.finish()
+          }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+      }
+      let archiveName = await progressStore.entry(for: id)?.archiveName ?? "archive"
       return Response(
         status: .ok,
         headers: [
           .contentType: "application/zip",
-          .contentDisposition: "attachment; filename=\"archive.zip\"",
+          .contentDisposition: "attachment; filename=\"\(archiveName).zip\"",
         ],
-        body: .init(byteBuffer: .init(data: fileData))
+        body: .init(asyncSequence: stream)
       )
     }
 
@@ -316,7 +340,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
 
       var activeWorkflow: (id: String, info: WorkflowStatusInfo)? = nil
       if let latestId = workflows.first {
-        let options = WorkflowOptions(id: latestId)
+        let options = WorkflowOptions(id: WorkflowID(rawValue: latestId))
         if let info = try? await system.workflows.getStatus(type: TravelBookingWorkflow.self, options: options) {
           activeWorkflow = (latestId, info)
         }
@@ -349,7 +373,7 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
 
     router.get("/status/{id}") { request, context in
       let id = try context.parameters.require("id")
-      let options = WorkflowOptions(id: id)
+      let options = WorkflowOptions(id: WorkflowID(rawValue: id))
       let info = try await system.workflows.getStatus(type: TravelBookingWorkflow.self, options: options)
 
       let result: TravelBookingWorkflow.BookingResult? =
@@ -476,6 +500,16 @@ struct DurableWorkflowsDemo: AsyncParsableCommand {
   }
 
   // MARK: - Environment
+
+  /// Strips a client-supplied token (session id, archive name) down to a
+  /// path-safe value: alphanumerics plus `-_.`, capped at 50 chars, never a
+  /// bare `.`/`..` (path traversal).
+  private static func sanitizedToken(_ raw: String) -> String {
+    var allowed = CharacterSet.alphanumerics
+    allowed.insert(charactersIn: "-_.")
+    let trimmed = String(raw.unicodeScalars.filter(allowed.contains).prefix(50))
+    return trimmed.isEmpty || trimmed.allSatisfy({ $0 == "." }) ? "archive" : trimmed
+  }
 
   struct Environment: Sendable {
     let database: Database

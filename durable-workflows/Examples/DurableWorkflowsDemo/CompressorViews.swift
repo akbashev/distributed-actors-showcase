@@ -239,15 +239,6 @@ struct CompressorStatusCard: HTML, Sendable {
         }
       }
 
-      if case .failed = info.status {
-        button(
-          .hx.post("/compressor/retry/\(workflowId)"),
-          .hx.target("#stream-\(workflowId)"),
-          .hx.swap(.outerHTML),
-          .style("margin-bottom: 1rem;")
-        ) { "↩ Retry" }
-      }
-
       div(.class("history-list")) {
         ForEach(info.events.reversed()) { event in
           div(.class("history-item")) {
@@ -283,15 +274,15 @@ struct CompressorStatusCard: HTML, Sendable {
     switch event {
     case .executionStarted:
       span { "🚀 Workflow started" }
-    case .activitySucceeded(_, let name, _):
+    case .activitySucceeded(let key, _):
       span {
         "✅ "
-        strong { name }
+        strong { key.name }
       }
-    case .activityFailed(_, let name, let fail):
+    case .activityFailed(let key, let fail):
       span(.style("color: var(--danger)")) {
         "❌ "
-        strong { name }
+        strong { key.name }
         " — \(fail.message)"
       }
     case .timerScheduled(_, let duration, _, let summary):
@@ -308,6 +299,10 @@ struct CompressorStatusCard: HTML, Sendable {
       span { "🛑 Cancelled" }
     case .executionFailed(let msg):
       span(.style("color: var(--danger)")) { "💥 \(msg)" }
+    case .retryPolicyConfigured:
+      span { "🔁 Automatic retry enabled" }
+    case .retryScheduled(let attempt, let deadline):
+      span { "🔁 Retry #\(attempt) scheduled at \(deadline)" }
     }
   }
 }
@@ -324,11 +319,10 @@ private struct FileProgressSection: HTML, Sendable {
 
   private struct IndexOnly: Decodable { let index: Int }
 
-  private func fileIndex(fromKey key: String) -> Int? {
-    guard let colon = key.firstIndex(of: ":") else { return nil }
-    let base64 = String(key[key.index(after: colon)...])
-    guard let data = Data(base64Encoded: base64) else { return nil }
-    return try? JSONDecoder().decode(IndexOnly.self, from: data).index
+  // The activity key carries the encoded input — decode it directly instead
+  // of reverse-engineering a string format.
+  private func fileIndex(from key: ActivityKey) -> Int? {
+    try? JSONDecoder().decode(IndexOnly.self, from: key.inputData).index
   }
 
   // Last known state per index (succeeded wins over failed if both present)
@@ -336,10 +330,10 @@ private struct FileProgressSection: HTML, Sendable {
     var result: [Int: FileState] = [:]
     for event in events {
       switch event {
-      case .activitySucceeded(let key, _, _):
-        if let i = fileIndex(fromKey: key), i < urls.count { result[i] = .done }
-      case .activityFailed(let key, _, _):
-        if let i = fileIndex(fromKey: key), i < urls.count, result[i] != .done { result[i] = .failed }
+      case .activitySucceeded(let key, _):
+        if let i = fileIndex(from: key), i < urls.count { result[i] = .done }
+      case .activityFailed(let key, _):
+        if let i = fileIndex(from: key), i < urls.count, result[i] != .done { result[i] = .failed }
       default: break
       }
     }

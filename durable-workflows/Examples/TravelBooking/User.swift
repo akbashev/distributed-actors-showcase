@@ -67,7 +67,7 @@ public distributed actor UserActor {
     case .abort(let workflowId):
       self.currentTask?.cancel()
       self.currentTask = nil
-      let options = WorkflowOptions(id: workflowId)
+      let options = WorkflowOptions(id: WorkflowID(rawValue: workflowId))
       try await self.actorSystem.workflows.cancel(type: TravelBookingWorkflow.self, options: options)
       try? await self.pushStatus(id: workflowId)
 
@@ -95,7 +95,7 @@ public distributed actor UserActor {
         do {
           _ = try await self.actorSystem.workflows.execute(
             type: TravelBookingWorkflow.self,
-            options: WorkflowOptions(id: workflowId),
+            options: WorkflowOptions(id: WorkflowID(rawValue: workflowId)),
             input: input
           )
         } catch {
@@ -177,7 +177,7 @@ public distributed actor UserActor {
   private func fetchStatus(id: String) async throws -> WorkflowStatusInfo {
     try await self.actorSystem.workflows.getStatus(
       type: TravelBookingWorkflow.self,
-      options: .init(id: id)
+      options: .init(id: WorkflowID(rawValue: id))
     )
   }
 

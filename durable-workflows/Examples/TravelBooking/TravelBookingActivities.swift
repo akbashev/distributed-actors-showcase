@@ -52,22 +52,22 @@ public struct TravelBookingActivities {
   @Activity
   public func reserveFunds(input: BalanceRequest, context: ActivityContext) async throws {
     try await Task.sleep(for: .seconds(3))
-    try await input.user.holdFunds(workflowID: context.workflowID, amount: input.amountCents)
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try await input.user.holdFunds(workflowID: context.workflowID.rawValue, amount: input.amountCents)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
   }
 
   @Activity
   public func captureFunds(input: BalanceRequest, context: ActivityContext) async throws {
     try await Task.sleep(for: .seconds(3))
-    try await input.user.captureHold(workflowID: context.workflowID)
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try await input.user.captureHold(workflowID: context.workflowID.rawValue)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
   }
 
   @Activity
   public func releaseFunds(input: BalanceRequest, context: ActivityContext) async throws {
     try await Task.sleep(for: .seconds(3))
-    try await input.user.releaseHold(workflowID: context.workflowID)
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try await input.user.releaseHold(workflowID: context.workflowID.rawValue)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
   }
 
   @Activity
@@ -76,12 +76,12 @@ public struct TravelBookingActivities {
     try await Task.sleep(for: .seconds(3))
 
     if input.itineraryId.contains("Fail") {
-      try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+      try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
       throw ApplicationError.typed(message: "Flight fully booked", type: "FlightUnavailable", isNonRetryable: false)
     }
 
     let id = "FLIGHT-\(UUID().uuidString.prefix(6))"
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
     return id
   }
 
@@ -91,24 +91,24 @@ public struct TravelBookingActivities {
     try await Task.sleep(for: .seconds(3))
 
     if input.hotelId.contains("Overbooked") {
-      try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+      try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
       throw ApplicationError.typed(message: "Hotel overbooked", type: "HotelUnavailable", isNonRetryable: false)
     }
 
     let id = "HOTEL-\(UUID().uuidString.prefix(6))"
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
     return id
   }
 
   @Activity
   public func cancelFlight(input: CompensationRequest, context: ActivityContext) async throws {
     try await Task.sleep(for: .seconds(3))
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
   }
 
   @Activity
   public func cancelHotel(input: CompensationRequest, context: ActivityContext) async throws {
     try await Task.sleep(for: .seconds(3))
-    try? await input.user.notifyWorkflowUpdate(id: context.workflowID)
+    try? await input.user.notifyWorkflowUpdate(id: context.workflowID.rawValue)
   }
 }

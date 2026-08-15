@@ -76,5 +76,17 @@ let package = Package(
         .copy("Public")
       ]
     ),
+    .testTarget(
+      name: "FileCompressorTests",
+      dependencies: [
+        "FileCompressor",
+        .product(name: "DurableWorkflows", package: "durable-workflows"),
+        .product(name: "DistributedCluster", package: "swift-distributed-actors"),
+        .product(name: "EventSourcing", package: "cluster-event-sourcing"),
+        .product(name: "VirtualActors", package: "cluster-virtual-actors"),
+        .product(name: "Hummingbird", package: "hummingbird"),
+      ],
+      path: "Tests/FileCompressorTests"
+    ),
   ]
 )

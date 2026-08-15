@@ -383,15 +383,15 @@ public struct WorkflowStatusCard: HTML, Sendable {
     switch event {
     case .executionStarted:
       span { "🚀 Workflow started" }
-    case .activitySucceeded(_, let name, _):
+    case .activitySucceeded(let key, _):
       span {
         "✅ Activity Success: "
-        strong { name }
+        strong { key.name }
       }
-    case .activityFailed(_, let name, let fail):
+    case .activityFailed(let key, let fail):
       span(.style("color: var(--danger)")) {
         "❌ Activity Failed: "
-        strong { name }
+        strong { key.name }
         " - \(fail.message)"
       }
     case .timerScheduled(_, let duration, _, let summary):
@@ -408,6 +408,10 @@ public struct WorkflowStatusCard: HTML, Sendable {
       span(.style("color: var(--success)")) { "🛑 Cancellation requested" }
     case .executionFailed(let msg):
       span(.style("color: var(--danger)")) { "💥 Fatal Error: \(msg)" }
+    case .retryPolicyConfigured:
+      span { "🔁 Automatic retry enabled" }
+    case .retryScheduled(let attempt, let deadline):
+      span { "🔁 Retry #\(attempt) scheduled at \(deadline)" }
     }
   }
 }
