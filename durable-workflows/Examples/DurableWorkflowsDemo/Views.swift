@@ -400,6 +400,8 @@ public struct WorkflowStatusCard: HTML, Sendable {
       span { "⏰ Timer fired" }
     case .timerCancelled:
       span { "🕑 Timer cancelled" }
+    case .timestampRecorded(_, let date):
+      span { "🕓 Time recorded: \(date)" }
     case .executionCompleted(_):
       span(.style("color: var(--success)")) { "🏁 Saga Completed" }
     case .executionCancelled:

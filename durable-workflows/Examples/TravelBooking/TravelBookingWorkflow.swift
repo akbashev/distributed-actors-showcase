@@ -73,7 +73,11 @@ public struct TravelBookingWorkflow {
         input: .init(user: user, hotelId: input.itineraryId, costCents: input.hotelCostCents)
       )
 
-      // 4. Finalize - Capture funds
+      // 4. Confirmation window — durable sleep: kill the node here and the
+      // resumed run waits only the remaining time, not the full window.
+      try await context.sleep(for: .seconds(5), summary: "confirmation window")
+
+      // 5. Finalize - Capture funds
       try await context.executeActivity(
         TravelBookingActivities.Activities.CaptureFunds.self,
         options: .init(startToCloseTimeoutMillis: 30_000),
