@@ -394,6 +394,12 @@ public struct WorkflowStatusCard: HTML, Sendable {
         strong { name }
         " - \(fail.message)"
       }
+    case .timerScheduled(_, let duration, _, let summary):
+      span { "⏲️ Timer set: \(duration)\(summary.map { " (\($0))" } ?? "")" }
+    case .timerFired:
+      span { "⏰ Timer fired" }
+    case .timerCancelled:
+      span { "🕑 Timer cancelled" }
     case .executionCompleted(_):
       span(.style("color: var(--success)")) { "🏁 Saga Completed" }
     case .executionCancelled:

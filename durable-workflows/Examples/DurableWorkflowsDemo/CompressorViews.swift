@@ -294,6 +294,12 @@ struct CompressorStatusCard: HTML, Sendable {
         strong { name }
         " — \(fail.message)"
       }
+    case .timerScheduled(_, let duration, _, let summary):
+      span { "⏲️ Timer set: \(duration)\(summary.map { " (\($0))" } ?? "")" }
+    case .timerFired:
+      span { "⏰ Timer fired" }
+    case .timerCancelled:
+      span { "🕑 Timer cancelled" }
     case .executionCompleted:
       span(.style("color: var(--success)")) { "🏁 Done" }
     case .executionCancelled:
