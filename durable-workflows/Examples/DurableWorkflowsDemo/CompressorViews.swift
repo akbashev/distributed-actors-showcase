@@ -39,6 +39,10 @@ struct CompressorEntryPage: HTMLDocument, Sendable {
 struct CompressorSessionPage: HTMLDocument, Sendable {
   let sessionId: String
   var hasWorkflow: Bool = false
+  /// Journal-recovered submission (last `executionStarted` input) — reopening
+  /// a session shows what was actually submitted, not a blank form.
+  var submittedURLs: [URL] = []
+  var submittedArchiveName: String = "archive"
   var title: String { "File Compressor – \(sessionId)" }
 
   var head: some HTML {
@@ -59,30 +63,36 @@ struct CompressorSessionPage: HTMLDocument, Sendable {
         }
       }
       div(.id("main-app")) {
-        CompressorFormFragment(sessionId: sessionId, hasWorkflow: hasWorkflow)
+        CompressorFormFragment(
+          sessionId: sessionId,
+          hasWorkflow: hasWorkflow,
+          submittedURLs: submittedURLs,
+          submittedArchiveName: submittedArchiveName
+        )
       }
     }
   }
 }
 
 private struct URLListField: HTML, Sendable {
+  /// Previously submitted URLs to prefill; empty renders a single blank row.
+  var urls: [URL] = []
+
+  @HTMLBuilder
+  private var rows: some HTML {
+    if urls.isEmpty {
+      URLRow(value: nil)
+    } else {
+      ForEach(urls) { url in
+        URLRow(value: url.absoluteString)
+      }
+    }
+  }
+
   var body: some HTML {
     div {
       div(.id("url-list"), .style("display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem;")) {
-        div(.style("display: flex; gap: 0.5rem;")) {
-          input(
-            .type(.text),
-            .name("url"),
-            .placeholder("https://example.com/file.txt"),
-            .required,
-            .style("flex: 1; font-family: monospace; font-size: 0.9rem;")
-          )
-          button(
-            .type(.button),
-            .on(.click, URLListScript.removeURL),
-            .style("background: var(--danger); color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 8px; cursor: pointer; flex-shrink: 0;")
-          ) { "✕" }
-        }
+        rows
       }
       button(
         .type(.button),
@@ -93,7 +103,41 @@ private struct URLListField: HTML, Sendable {
   }
 }
 
+private struct URLRow: HTML, Sendable {
+  let value: String?
+
+  var body: some HTML {
+    div(.style("display: flex; gap: 0.5rem;")) {
+      if let value {
+        input(
+          .type(.text),
+          .name("url"),
+          .value(value),
+          .placeholder("https://example.com/file.txt"),
+          .required,
+          .style("flex: 1; font-family: monospace; font-size: 0.9rem;")
+        )
+      } else {
+        input(
+          .type(.text),
+          .name("url"),
+          .placeholder("https://example.com/file.txt"),
+          .required,
+          .style("flex: 1; font-family: monospace; font-size: 0.9rem;")
+        )
+      }
+      button(
+        .type(.button),
+        .on(.click, URLListScript.removeURL),
+        .style("background: var(--danger); color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 8px; cursor: pointer; flex-shrink: 0;")
+      ) { "✕" }
+    }
+  }
+}
+
 private struct ArchiveNameField: HTML, Sendable {
+  var value: String = "archive"
+
   var body: some HTML {
     div {
       label(.style("display: block; margin-bottom: 0.4rem; font-weight: 500;")) { "Archive name" }
@@ -101,7 +145,7 @@ private struct ArchiveNameField: HTML, Sendable {
         .type(.text),
         .name("archiveName"),
         .placeholder("archive"),
-        .value("archive"),
+        .value(value),
         .style("width: 100%; box-sizing: border-box;")
       )
     }
@@ -146,6 +190,8 @@ private enum URLListScript {
 struct CompressorFormFragment: HTML, Sendable {
   let sessionId: String
   var hasWorkflow: Bool = false
+  var submittedURLs: [URL] = []
+  var submittedArchiveName: String = "archive"
 
   var body: some HTML {
     section(.class("card")) {
@@ -156,8 +202,8 @@ struct CompressorFormFragment: HTML, Sendable {
         .hx.swap(.innerHTML)
       ) {
         div(.style("display: flex; flex-direction: column; gap: 1rem;")) {
-          URLListField()
-          ArchiveNameField()
+          URLListField(urls: submittedURLs)
+          ArchiveNameField(value: submittedArchiveName)
           button(.type(.submit)) { "Compress" }
         }
       }

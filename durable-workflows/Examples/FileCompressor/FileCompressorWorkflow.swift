@@ -8,12 +8,12 @@ public struct FileCompressorWorkflow {
   public struct Input: Codable, Sendable {
     public let urls: [URL]
     public let archiveName: String
-    public let connection: Connection
+    public let compressor: Compressor
 
-    public init(urls: [URL], archiveName: String, connection: Connection) {
+    public init(urls: [URL], archiveName: String, compressor: Compressor) {
       self.urls = urls
       self.archiveName = archiveName
-      self.connection = connection
+      self.compressor = compressor
     }
   }
 
@@ -28,16 +28,16 @@ public struct FileCompressorWorkflow {
   public init() {}
 
   public func run(input: Input, context: WorkflowContext) async throws -> Output {
-    try? await input.connection.notify(.started)
+    try? await input.compressor.notify(.started)
 
     let files: [String] = try await withThrowingTaskGroup(of: (Int, String).self) { group in
       for (index, url) in input.urls.enumerated() {
         group.addTask {
           let path = try await context.executeActivity(
             FileCompressorActivities.Activities.FetchAndStore.self,
-            input: .init(url: url, index: index, connection: input.connection)
+            input: .init(url: url, index: index, compressor: input.compressor)
           )
-          try? await input.connection.notify(.download(file: url, fileIndex: index, fraction: 1.0))
+          try? await input.compressor.notify(.download(file: url, fileIndex: index, fraction: 1.0))
           return (index, path)
         }
       }

@@ -34,7 +34,7 @@ public distributed actor Compressor {
     connections.removeValue(forKey: id)
   }
 
-  distributed public func fetch(id: WorkflowID, urls: [URL], name: String, connection: Connection) async throws -> String {
+  distributed public func fetch(id: WorkflowID, urls: [URL], name: String) async throws -> String {
     let output = try await actorSystem.workflows.execute(
       type: FileCompressorWorkflow.self,
       // Automatic retry: a transient download/zip failure re-runs the
@@ -45,7 +45,7 @@ public distributed actor Compressor {
         id: id,
         retryPolicy: RetryPolicy(initialInterval: .seconds(2), maximumAttempts: 3)
       ),
-      input: FileCompressorWorkflow.Input(urls: urls, archiveName: name, connection: connection)
+      input: FileCompressorWorkflow.Input(urls: urls, archiveName: name, compressor: self)
     )
     await broadcast(.archieved(URL(fileURLWithPath: output.archivePath)))
     return output.archivePath

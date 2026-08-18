@@ -9,12 +9,12 @@ public struct FileCompressorActivities {
   public struct FetchRequest: Codable, Sendable {
     public let url: URL
     public let index: Int
-    public let connection: Connection
+    public let compressor: Compressor
 
-    public init(url: URL, index: Int, connection: Connection) {
+    public init(url: URL, index: Int, compressor: Compressor) {
       self.url = url
       self.index = index
-      self.connection = connection
+      self.compressor = compressor
     }
   }
 
@@ -32,22 +32,36 @@ public struct FileCompressorActivities {
   public func fetchAndStore(input: FetchRequest, context: ActivityContext) async throws -> String {
     var request = URLRequest(url: input.url)
     request.timeoutInterval = 60
+    // Identify ourselves: some servers RST connections carrying URLSession's
+    // default CFNetwork user agent (verified against Hetzner's speedtest
+    // host); any explicit UA is served fine.
+    request.setValue("DurableWorkflowsDemo/1.0", forHTTPHeaderField: "User-Agent")
     var result: (url: URL, response: URLResponse)? = nil
     for try await status in try await URLSession.shared.download(for: request) {
       switch status {
       case .downloading(let progress):
-        try? await input.connection.notify(.download(file: input.url, fileIndex: input.index, fraction: progress))
+        try? await input.compressor.notify(.download(file: input.url, fileIndex: input.index, fraction: progress))
       case let .finished(url, response):
         result = (url, response)
       }
     }
+    // A cancelled download ends the stream WITHOUT a result — report
+    // cancellation as cancellation, never as a fetch failure.
+    try Task.checkCancellation()
+    guard let result else {
+      throw ApplicationError.typed(
+        message: "Download of \(input.url) ended without a response",
+        type: "FetchError",
+        isNonRetryable: false
+      )
+    }
     guard
-      let result,
       let httpResponse = result.response as? HTTPURLResponse,
       httpResponse.statusCode == 200
     else {
+      let code = (result.response as? HTTPURLResponse)?.statusCode.description ?? "no HTTP response"
       throw ApplicationError.typed(
-        message: "Failed to fetch \(input.url)",
+        message: "Failed to fetch \(input.url): HTTP \(code)",
         type: "FetchError",
         isNonRetryable: false
       )
@@ -78,6 +92,14 @@ public struct FileCompressorActivities {
 
   @Activity
   public func createArchive(input: ArchiveRequest, context: ActivityContext) async throws -> String {
+    // zip exit 12 on an empty file list is permanent — fail fast, never retry.
+    guard !input.files.isEmpty else {
+      throw ApplicationError.typed(
+        message: "Nothing to archive",
+        type: "ArchiveError",
+        isNonRetryable: true
+      )
+    }
     let tmpDir = try Self.storageDir(workflowID: context.workflowID)
     let archivePath = tmpDir.appendingPathComponent("\(input.archiveName).zip").path
     let process = Process()

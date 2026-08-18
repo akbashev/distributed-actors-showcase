@@ -32,6 +32,23 @@ func runProcess(_ executable: String, _ arguments: [String]) throws -> String {
   return String(data: data, encoding: .utf8) ?? ""
 }
 
+/// Spawns the session's `Compressor` and registers a recorder-backed
+/// `Connection` with it — the demo's shape: the workflow input carries the
+/// stable virtual actor, and progress broadcasts reach its connections.
+func makeRecordingCompressor(
+  on system: ClusterSystem,
+  id: String,
+  recorder: MessageRecorder
+) async throws -> Compressor {
+  let compressor: Compressor = try await system.virtualActors.getActor(
+    identifiedBy: .init(rawValue: id),
+    dependency: Compressor.Dependency()
+  )
+  let connection = Connection(actorSystem: system, onNotify: recorder.record)
+  try await compressor.addConnection(connection)
+  return compressor
+}
+
 /// End-to-end `FileCompressorWorkflow` behavior over a real single-node
 /// cluster, with downloads served by an in-process Hummingbird fixture —
 /// no external network.
@@ -52,14 +69,14 @@ struct FileCompressorWorkflowTests {
     defer { try? FileManager.default.removeItem(at: compressorStorageDir(workflowID: options.id)) }
 
     let recorder = MessageRecorder()
-    let connection = Connection(actorSystem: system, onNotify: recorder.record)
+    let compressor = try await makeRecordingCompressor(on: system, id: "compressor-fc-happy", recorder: recorder)
     let output = try await system.workflows.execute(
       type: FileCompressorWorkflow.self,
       options: options,
       input: .init(
         urls: [server.alphaURL, server.betaURL],
         archiveName: "fc-happy-archive",
-        connection: connection
+        compressor: compressor
       )
     )
 
@@ -96,14 +113,14 @@ struct FileCompressorWorkflowTests {
     defer { try? FileManager.default.removeItem(at: compressorStorageDir(workflowID: options.id)) }
 
     let recorder = MessageRecorder()
-    let connection = Connection(actorSystem: system, onNotify: recorder.record)
+    let compressor = try await makeRecordingCompressor(on: system, id: "compressor-fc-progress", recorder: recorder)
     _ = try await system.workflows.execute(
       type: FileCompressorWorkflow.self,
       options: options,
       input: .init(
         urls: [server.alphaURL, server.betaURL],
         archiveName: "fc-progress-archive",
-        connection: connection
+        compressor: compressor
       )
     )
 
@@ -142,11 +159,11 @@ struct FileCompressorWorkflowTests {
     defer { try? FileManager.default.removeItem(at: compressorStorageDir(workflowID: options.id)) }
 
     let recorder = MessageRecorder()
-    let connection = Connection(actorSystem: system, onNotify: recorder.record)
+    let compressor = try await makeRecordingCompressor(on: system, id: "compressor-fc-retry", recorder: recorder)
     let input = FileCompressorWorkflow.Input(
       urls: [server.alphaURL, server.flakyURL],
       archiveName: "fc-retry-archive",
-      connection: connection
+      compressor: compressor
     )
 
     // The flaky URL answers 500 once; the retry policy re-runs the workflow
