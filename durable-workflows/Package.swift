@@ -1,51 +1,92 @@
-import CompilerPluginSupport
 // swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
-  name: "durable-workflows",
+  name: "durable-workflows-showcase",
   platforms: [
     .macOS("26.0")
   ],
   products: [
-    .library(name: "DurableWorkflows", targets: ["DurableWorkflows"])
+    .library(name: "TravelBooking", targets: ["TravelBooking"]),
+    .library(name: "FileCompressor", targets: ["FileCompressor"]),
+    .library(name: "EventStores", targets: ["EventStores"]),
+    .executable(name: "durable-workflows-demo", targets: ["DurableWorkflowsDemo"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.11.0"),
+    .package(url: "https://github.com/akbashev/cluster-durable-workflows.git", branch: "main"),
     .package(url: "https://github.com/akbashev/cluster-event-sourcing.git", branch: "main"),
     .package(url: "https://github.com/akbashev/cluster-virtual-actors.git", branch: "main"),
     .package(url: "https://github.com/apple/swift-distributed-actors.git", branch: "main"),
-    .package(url: "https://github.com/swiftlang/swift-syntax.git", "509.0.0"..<"605.0.0"),
+    .package(url: "https://github.com/akbashev/postgres-event-store.git", branch: "main"),
+    .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.16.0"),
+    .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.2.0"),
+    .package(url: "https://github.com/hummingbird-community/hummingbird-elementary.git", from: "0.4.2"),
+    .package(url: "https://github.com/elementary-swift/elementary.git", from: "0.6.0"),
+    .package(url: "https://github.com/elementary-swift/elementary-htmx.git", from: "0.1.0"),
+    .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
   ],
   targets: [
-    .macro(
-      name: "DurableWorkflowsMacros",
+    .target(
+      name: "EventStores",
       dependencies: [
-        .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
-        .product(name: "SwiftSyntax", package: "swift-syntax"),
-        .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
-        .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
-        .product(name: "SwiftDiagnostics", package: "swift-syntax"),
-      ]
+        .product(name: "EventSourcing", package: "cluster-event-sourcing")
+      ],
+      path: "EventStores"
     ),
     .target(
-      name: "DurableWorkflows",
+      name: "TravelBooking",
       dependencies: [
-        "DurableWorkflowsMacros",
+        .product(name: "DurableWorkflows", package: "cluster-durable-workflows"),
         .product(name: "EventSourcing", package: "cluster-event-sourcing"),
         .product(name: "VirtualActors", package: "cluster-virtual-actors"),
         .product(name: "DistributedCluster", package: "swift-distributed-actors"),
-        .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+      ],
+      path: "TravelBooking"
+    ),
+    .target(
+      name: "FileCompressor",
+      dependencies: [
+        .product(name: "DurableWorkflows", package: "cluster-durable-workflows"),
+        .product(name: "DistributedCluster", package: "swift-distributed-actors"),
+      ],
+      path: "FileCompressor"
+    ),
+    .executableTarget(
+      name: "DurableWorkflowsDemo",
+      dependencies: [
+        "TravelBooking",
+        "FileCompressor",
+        "EventStores",
+        .product(name: "DurableWorkflows", package: "cluster-durable-workflows"),
+        .product(name: "EventSourcing", package: "cluster-event-sourcing"),
+        .product(name: "VirtualActors", package: "cluster-virtual-actors"),
+        .product(name: "DistributedCluster", package: "swift-distributed-actors"),
+        .product(name: "PostgresEventStore", package: "postgres-event-store"),
+        .product(name: "Hummingbird", package: "hummingbird"),
+        .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
+        .product(name: "HummingbirdElementary", package: "hummingbird-elementary"),
+        .product(name: "Elementary", package: "elementary"),
+        .product(name: "ElementaryHTMX", package: "elementary-htmx"),
+        .product(name: "ElementaryHTMXWS", package: "elementary-htmx"),
+        .product(name: "ElementaryHTMXSSE", package: "elementary-htmx"),
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "DurableWorkflowsDemo",
+      resources: [
+        .copy("Public")
       ]
     ),
     .testTarget(
-      name: "DurableWorkflowsTests",
+      name: "FileCompressorTests",
       dependencies: [
-        "DurableWorkflows",
+        "FileCompressor",
+        .product(name: "DurableWorkflows", package: "cluster-durable-workflows"),
+        .product(name: "DistributedCluster", package: "swift-distributed-actors"),
         .product(name: "EventSourcing", package: "cluster-event-sourcing"),
         .product(name: "VirtualActors", package: "cluster-virtual-actors"),
-        .product(name: "DistributedCluster", package: "swift-distributed-actors"),
-      ]
+        .product(name: "Hummingbird", package: "hummingbird"),
+      ],
+      path: "Tests/FileCompressorTests"
     ),
   ]
 )
