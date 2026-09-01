@@ -6,8 +6,8 @@ import Foundation
 import Synchronization
 import VirtualActors
 
-/// Journal store for tests: keeps events in memory, idempotent per
-/// `(id, sequenceNumber)` as `EventStore` requires. Mirrors the parent
+/// Journal store for tests: keeps events in memory and rejects every repeated
+/// `(id, sequenceNumber)` write as `EventStore` requires. Mirrors the parent
 /// package's test harness.
 final class InMemoryEventStore: EventStore, Sendable {
   struct Conflict: Error {}
@@ -22,9 +22,8 @@ final class InMemoryEventStore: EventStore, Sendable {
     let data = try JSONEncoder().encode(event)
     try self.storage.withLock { store in
       var log = store[id] ?? []
-      if let existing = log.first(where: { $0.sequenceNumber == sequenceNumber }) {
-        guard existing.data == data else { throw Conflict() }
-        return
+      if log.contains(where: { $0.sequenceNumber == sequenceNumber }) {
+        throw Conflict()
       }
       log.append((sequenceNumber, data))
       log.sort { $0.sequenceNumber < $1.sequenceNumber }
@@ -32,15 +31,27 @@ final class InMemoryEventStore: EventStore, Sendable {
     }
   }
 
-  func eventsFor<Event: Codable & Sendable>(
+  func eventStream<Event: Codable & Sendable>(
     id: String,
     fromSequenceNumber: Int64
-  ) async throws -> [Event] {
+  ) async throws -> EventStream<Event> {
     let log = self.storage.withLock { $0[id] ?? [] }
-    return
+    let envelopes =
       try log
       .filter { $0.sequenceNumber >= fromSequenceNumber }
-      .map { try JSONDecoder().decode(Event.self, from: $0.data) }
+      .map {
+        EventEnvelope(
+          persistenceID: id,
+          sequenceNumber: $0.sequenceNumber,
+          event: try JSONDecoder().decode(Event.self, from: $0.data)
+        )
+      }
+    return AsyncThrowingStream { continuation in
+      for envelope in envelopes {
+        continuation.yield(envelope)
+      }
+      continuation.finish()
+    }
   }
 }
 

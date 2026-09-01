@@ -4,6 +4,8 @@ import Foundation
 /// File-based `EventStore` fallback for running without Postgres: one JSONL
 /// file per persistence ID under `~/Library/Application Support`.
 public actor FileEventStore: EventStore {
+  private struct DuplicateEvent: Error {}
+
   private let directory: URL
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
@@ -18,30 +20,48 @@ public actor FileEventStore: EventStore {
     id: String,
     sequenceNumber: Int64
   ) async throws {
-    var line = try encoder.encode(event)
-    line.append(UInt8(ascii: "\n"))
     let url = fileURL(for: id)
-    if FileManager.default.fileExists(atPath: url.path) {
-      let handle = try FileHandle(forWritingTo: url)
-      defer { try? handle.close() }
-      try handle.seekToEnd()
-      handle.write(line)
-    } else {
-      try line.write(to: url)
+    var line = try encoder.encode(
+      EventEnvelope(
+        persistenceID: id,
+        sequenceNumber: sequenceNumber,
+        event: event
+      )
+    )
+    line.append(UInt8(ascii: "\n"))
+    if FileManager.default.createFile(atPath: url.path, contents: line) {
+      return
     }
+
+    let handle = try FileHandle(forUpdating: url)
+    defer { try? handle.close() }
+    for try await existingLine in handle.bytes.lines {
+      let stored = try decoder.decode(
+        EventEnvelope<Event>.self,
+        from: Data(existingLine.utf8)
+      )
+      if stored.sequenceNumber == sequenceNumber {
+        throw DuplicateEvent()
+      }
+    }
+    try handle.seekToEnd()
+    handle.write(line)
   }
 
-  public func eventsFor<Event: Codable & Sendable>(id: String, fromSequenceNumber: Int64)
-    async throws -> [Event]
-  {
+  public func eventStream<Event: Codable & Sendable>(
+    id: String,
+    fromSequenceNumber: Int64 = 1
+  ) async throws -> EventStream<Event> {
     let url = fileURL(for: id)
-    guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-    let data = try Data(contentsOf: url)
-    let events =
-      try data
-      .split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
-      .map { try decoder.decode(Event.self, from: Data($0)) }
-    return Array(events.dropFirst(max(0, Int(fromSequenceNumber - 1))))
+    let handle = try FileHandle(forReadingFrom: url)
+    return handle.bytes.lines
+      .map { line in
+        try JSONDecoder().decode(
+          EventEnvelope<Event>.self,
+          from: Data(line.utf8)
+        )
+      }
+      .filter { $0.sequenceNumber >= fromSequenceNumber }
   }
 
   private func fileURL(for id: String) -> URL {
